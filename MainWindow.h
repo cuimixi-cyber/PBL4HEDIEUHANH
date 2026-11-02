@@ -2,25 +2,30 @@
 #define MAINWINDOW_H
 
 #include "core_bridge.h" // extern "C" sang toan bo ham/struct goc trong src/
+#include "IconProvider.h"
+#include "LiveChart.h"
+#include "NetworkTab.h"
 
-#include <QMainWindow>
-#include <QTimer>
-#include <QTableWidget>
-#include <QTreeWidget>
-#include <QTextEdit>
-#include <QLineEdit>
-#include <QComboBox>
 #include <QCheckBox>
-#include <QSpinBox>
-#include <QProgressBar>
+#include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMainWindow>
+#include <QPair>
+#include <QProgressBar>
 #include <QPushButton>
+#include <QSet>
+#include <QSpinBox>
 #include <QTabWidget>
+#include <QTableWidget>
+#include <QTextEdit>
+#include <QTimer>
+#include <QTreeWidget>
+#include <QVector>
 
-/* MainWindow: TOÀN BỘ là code MỚI cho giao diện Qt. KHÔNG chứa bất kỳ
- * thuật toán nào đã có trong src/ - mọi phép tính (%CPU, %MEM, sort,
- * search, kill, set priority, log) đều GỌI LẠI đúng hàm gốc qua
- * core_bridge.h. Lớp này chỉ có nhiệm vụ: hiển thị + nhận input + gọi hàm. */
+/* MainWindow: giao diện Qt. KHÔNG chứa thuật toán nào đã có trong src/ - mọi phép tính
+ * (%CPU, %MEM, sort, search, kill, set priority, log) GỌI LẠI đúng hàm gốc qua core_bridge.h.
+ * Phần mới: ProcessTree (đóng cả ứng dụng), NetMonitor/NetworkTab (mạng), LiveChart, IconProvider. */
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -32,6 +37,8 @@ private slots:
     void onRefreshTick();          // goi dinh ky boi QTimer
     void onKillTerminateClicked();
     void onKillForceClicked();
+    void onCloseAppClicked();
+    void onForceCloseAppClicked();
     void onPriorityClicked();
     void onSearchTextChanged(const QString &text);
     void onSortFieldChanged(int index);
@@ -42,6 +49,14 @@ private slots:
     void onManualRefreshClicked();
     void onReloadLogClicked();
     void onTabChanged(int index);
+    void onTableSelectionChanged();
+    void onTableHeaderClicked(int column);
+    void onTableContextMenu(const QPoint &pos);
+    void onTreeSelectionChanged();
+    void onTreeCloseClicked();
+    void onTreeForceClicked();
+    void onCloseAppRequested(int pid, bool force);     // tu tab Mang
+    void onShowProcessRequested(int pid);              // tu tab Mang
 
 private:
     void setupUi();
@@ -50,11 +65,16 @@ private:
     QWidget *createTreeTab();
     QWidget *createLogTab();
 
+    void refreshAll(bool fromTimer);
     void rebuildView();            // ap dung filter (search_processes) tu m_curr -> m_view
     void populateTable();
     void populateTree();
-    void updateOverviewLabels();
+    void updateOverviewLabels(bool pushChartSample);
     void appendTreeChildren(QTreeWidgetItem *parentItem, pid_t parentPid, bool *visited);
+    QTreeWidgetItem *makeTreeItem(const ProcessInfo &p, QTreeWidgetItem *parent);
+
+    void killTreeAction(pid_t pid, bool force, bool climbToAppRoot);
+    void escalateKill(const QVector<QPair<int, qulonglong>> &targets, pid_t root);
 
     pid_t selectedPid() const;
     const ProcessInfo *findInCurrByPid(pid_t pid) const;
@@ -71,11 +91,20 @@ private:
     int m_numCores = 1;
 
     QString m_filterKeyword;
-    pid_t m_selectedPid = -1;
+    pid_t m_selectedPid = -1;          // tien trinh dang chon o bang (bam theo PID, khong theo so dong)
+    pid_t m_treeSelectedPid = -1;
+    bool m_rebuildingTable = false;
+    bool m_rebuildingTree = false;
+    QSet<int> m_treeCollapsed;         // cac nut cay nguoi dung da thu gon (giu qua cac lan lam moi)
+
+    IconProvider m_icons;
 
     // ---- Widget ----
     QTabWidget *m_tabs = nullptr;
     QTimer *m_refreshTimer = nullptr;
+    QWidget *m_treePage = nullptr;
+    QWidget *m_logPage = nullptr;
+    NetworkTab *m_netTab = nullptr;
 
     // Tab Tong quan
     QProgressBar *m_cpuBar = nullptr;
@@ -85,6 +114,8 @@ private:
     QCheckBox *m_autoRefreshCheck = nullptr;
     QSpinBox *m_intervalSpin = nullptr;
     QCheckBox *m_perCoreCheck = nullptr;
+    LiveChart *m_cpuChart = nullptr;
+    LiveChart *m_ramChart = nullptr;
 
     // Tab Danh sach tien trinh
     QLineEdit *m_searchEdit = nullptr;

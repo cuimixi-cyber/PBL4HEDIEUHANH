@@ -1,78 +1,72 @@
-# Giao diện GUI (Qt) cho Process Manager
+# GUI Qt cho Process Manager (bản cập nhật)
 
-Đây là **giao diện thứ 2**, song song với bản TUI (ncurses) gốc trong `src/`.
-Cả 2 bản dùng **chung một lõi**, không trùng lặp logic.
+`src/*.c|h` (lõi C của nhóm) **giữ nguyên 100%** — đã so sánh từng byte với bản nhóm gửi.
+Mọi thứ dưới đây là code MỚI nằm ngoài `src/`.
 
-## Cam kết "không sửa code gốc"
-
-Toàn bộ các file trong `src/` (`process_list.c/h`, `proc_reader.c/h`,
-`utils.c/h`, `process_actions.c/h`, `logger.c/h`, `main.c`, `ui.c/h`) **được
-giữ nguyên 100%**, không chỉnh sửa gì. Bằng chứng kỹ thuật: thư mục này chỉ
-`add_library(core_c ...)` biên dịch LẠI đúng các file `.c` gốc (cùng đúng cờ
-biên dịch `-std=c11 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE` như trong
-Makefile gốc), rồi GUI Qt (C++) gọi vào qua `core_bridge.h` (file MỚI, chỉ
-bọc `extern "C"` để C++ linker tìm đúng hàm C, không chứa logic gì).
-
-**Đã kiểm chứng thật**: biên dịch các file gốc bằng gcc thành `.o`, viết 1
-chương trình C++ tối giản gọi `read_all_processes()`, `sort_processes()`,
-`kill_process()`, `parse_long_strict()`, `log_action()` qua `core_bridge.h`,
-link bằng `g++` — **chạy đúng trên dữ liệu `/proc` thật** (đọc được 50 tiến
-trình, kill signal 0 tới chính mình thành công...). Việc "ghép GUI Qt vào
-code C gốc mà không sửa gì" là khả thi và đã test, không phải lý thuyết.
-
-## Các file MỚI (chỉ ở đây, không đụng `src/`)
-
+## Đặt file thế nào
+Đè các file trong zip lên thư mục gốc repo (cạnh `src/`, `tests/`, `Makefile`):
 ```
-gui_qt/
-├── core_bridge.h      # bọc extern "C", KHÔNG chứa logic
-├── MainWindow.h/.cpp   # TOÀN BỘ UI Qt - gọi lại hàm gốc, không viết lại thuật toán
-├── main_gui.cpp        # điểm khởi động QApplication
-└── CMakeLists.txt      # build riêng, không đụng Makefile gốc
+CMakeLists.txt  core_bridge.h  main_gui.cpp
+MainWindow.h/.cpp   NetworkTab.h/.cpp   LiveChart.h/.cpp   IconProvider.h/.cpp
+NetMonitor.h/.cpp   ProcessTree.h/.cpp  ViewUtil.h
+tests/test_netmon.cpp  tests/test_proctree.cpp  tests/fakeapp.c   (thêm vào, không đụng test_core.c)
 ```
+`core_bridge.h` giờ include tên "trần" (`process_list.h`...) nên đúng với bố cục `src/` ngang hàng.
+CMake tự nhận bố cục (`src/` hoặc `../src/`).
 
-## Cách build (cần Qt5, chưa test được trong sandbox vì thiếu Qt dev headers)
-
+## Build
 ```bash
-sudo apt install qtbase5-dev cmake build-essential   # nếu máy chưa có
-cd gui_qt
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-./process_manager_gui
+sudo apt install qtbase5-dev cmake build-essential   # cần Qt >= 5.11 (Ubuntu 20.04 trở lên)
+mkdir build && cd build && cmake .. && make -j$(nproc)
+./process_manager_gui          # sudo ./process_manager_gui để thấy socket của user khác
+ctest --output-on-failure      # test phần logic, không cần mở GUI
 ```
+Không cần thêm module Qt Charts: biểu đồ tự vẽ bằng `QPainter` (`LiveChart`).
 
-Bản TUI gốc vẫn build như cũ, không bị ảnh hưởng gì:
-```bash
-cd ..          # về thư mục gốc chứa Makefile
-make run
-```
+## Các thay đổi theo yêu cầu
 
-## Giao diện chia 4 tab (dễ quản lý, dễ demo)
+### 1) Lỗi thanh xanh chọn tiến trình bị mất
+Nguyên nhân thật: mỗi lần làm mới, `setRowCount(0)` đẩy **thanh cuộn về đầu bảng** → dòng đang chọn
+bị đẩy ra khỏi tầm nhìn; thêm nữa khi bấm sang nút khác bảng mất focus và Qt tô **xám** dòng chọn.
+Sửa (`ViewUtil.h`): giữ PID đang chọn, giữ vị trí cuộn, chọn lại đúng dòng của PID đó (dòng đi theo
+tiến trình dù thứ hạng %CPU thay đổi), cuộn tối thiểu để luôn nhìn thấy, và ép màu chọn Inactive = Active
+(luôn xanh). Áp dụng cho cả bảng tiến trình, cây tiến trình và các bảng ở tab Mạng. Cây tiến trình còn nhớ
+nhánh người dùng đã thu gọn (trước đây mỗi lần làm mới lại mở hết).
 
-1. **Tổng quan** — progress bar %CPU/%RAM toàn hệ thống, uptime, số tiến
-   trình, cảnh báo zombie, cài đặt chu kỳ refresh + chế độ %CPU (hệ
-   thống/per-core, giống phím `m` ở bản TUI).
-2. **Danh sách tiến trình** — bảng đầy đủ (PID/Tên/Trạng thái/%CPU/%MEM/
-   PRI/NI/User/**Thời gian chạy**), tìm kiếm, sắp xếp, kill (SIGTERM riêng
-   và SIGKILL riêng — tách rõ 2 nút, khác bản TUI chỉ có SIGKILL), đổi nice.
-3. **Cây tiến trình** — `QTreeWidget` dựng từ quan hệ PPID, thay cho ASCII
-   tree trong bản TUI.
-4. **Nhật ký** — đọc trực tiếp `process_manager.log` do chính `log_action()`
-   gốc ghi ra, tự động tải lại khi chuyển sang tab này.
+### 2) Kill được Firefox & các ứng dụng đa tiến trình
+Firefox/Chrome gồm 1 tiến trình chính + nhiều tiến trình con; kill 1 PID chỉ sập 1 tab.
+`ProcessTree` leo lên cha chừng nào cha còn **cùng file thực thi** (con của Firefox chạy lại chính
+`firefox -contentproc ...`), rồi đóng cả cây. Có nút/menu chuột phải **"Đóng cả ứng dụng"** (SIGTERM, cha trước;
+sau 3 giây tự SIGKILL những tiến trình chưa thoát, nhận diện bằng `starttime` để không nhầm PID tái sử dụng)
+và **"Buộc đóng cả ứng dụng"** (SIGKILL, con trước cha sau). Tab Cây tiến trình có nút đóng cả nhánh.
+An toàn: từ chối nếu cây chứa chính Process Manager; cảnh báo riêng với tiến trình hệ thống
+(systemd, gnome-shell, Xorg...); shell/Python/Java... không bị leo lên; hiện danh sách tiến trình sẽ bị tác động.
+Việc gửi tín hiệu vẫn gọi `kill_process()` gốc, mỗi lần đóng ứng dụng ghi 1 dòng vào log.
 
-## Một phát hiện nhỏ khi làm GUI
+### 3) Icon hệ thống phía trước tiến trình
+`IconProvider` dùng icon theme của desktop (`QIcon::fromTheme`) theo **file thực thi** (nên mọi
+tiến trình con của Firefox cùng icon Firefox), có bảng ánh xạ cho shell, terminal, systemd, Xorg...,
+icon riêng cho kernel thread và zombie, và dự phòng bằng icon chuẩn của Qt nên không bao giờ trống.
 
-Hàm `format_run_time()` trong `utils.c` đã viết sẵn và đúng, nhưng **chưa
-được gọi ở bất kỳ đâu trong bản TUI** (`main.c`/`ui.c` không dùng tới). GUI
-lần này tận dụng lại đúng hàm này cho cột "Thời gian chạy" — không viết
-thêm logic mới, chỉ là dùng lại cái đã có sẵn nhưng bị bỏ quên.
+### 4) Tab "Mạng" mới
+- Biểu đồ tốc độ ↓/↑ chạy thời gian thực (đo từ `/proc/net/dev`, chính xác cho mọi giao thức), bảng từng card mạng.
+- Thông số: tốc độ hiện tại, tổng từ khi mở chương trình, đỉnh tốc độ, số kết nối ESTAB/LISTEN.
+- Ứng dụng đang dùng mạng, **gộp theo ứng dụng**: số tiến trình, số kết nối, ESTAB/LISTEN/UDP, tốc độ ↓/↑,
+  tổng nhận/gửi, có kết nối Internet hay không; lọc, tìm kiếm, đóng ứng dụng ngay từ đây.
+- Chi tiết kết nối của ứng dụng đang chọn (giao thức, địa chỉ, dịch vụ HTTPS/DNS/SSH..., phạm vi
+  Loopback/LAN/Internet, trạng thái, byte nhận/gửi) + biểu đồ lưu lượng riêng của ứng dụng đó.
+- Bổ sung khác: biểu đồ CPU/RAM chạy ở tab Tổng quan, bấm tiêu đề cột để sắp xếp, menu chuột phải
+  (xem kết nối mạng, sao chép PID/dòng lệnh), sửa nhãn "%%CPU" thành "%CPU".
 
-## Giới hạn cần biết
+## Giới hạn cần nói thật khi bảo vệ
+- Tốc độ **theo từng ứng dụng** chỉ ước lượng được cho **TCP** (qua lệnh `ss`); UDP/QUIC không có bộ đếm byte
+  theo socket trong `/proc`. Tốc độ tổng ở biểu đồ lớn thì chính xác.
+- Thấy socket của user khác cần `sudo`; không có `ss` thì cột tốc độ hiện N/A (phần còn lại vẫn chạy).
 
-Sandbox tạo ra bản này **không có Qt dev headers và không có mạng để cài**,
-nên phần `MainWindow.cpp`/`main_gui.cpp` **chưa build-test được** (khác với
-phần lõi C đã test thật ở trên). Mình đã viết đúng API Qt5 Widgets theo kinh
-nghiệm, nhưng bạn cần tự `cmake .. && make` trên máy có Qt5 và báo lại nếu
-gặp lỗi compile — khả năng cao nhất nếu có lỗi sẽ là lỗi cú pháp nhỏ (tên
-hàm/thiếu include), không phải lỗi logic, vì toàn bộ phần tính toán đã dùng
-lại nguyên hàm đã test.
+## Đã kiểm chứng gì (trong sandbox, chạy thật)
+| Phần | Kết quả |
+|---|---|
+| `NetMonitor` (parse /proc/net đúng đáp án biết trước, socket loopback thật → đúng PID, tính tốc độ) | 50/50 pass |
+| `ProcessTree` (cây giả lập kiểu Firefox: tìm gốc, SIGTERM/SIGKILL thật, thứ tự, bảo vệ) | 21/21 pass |
+| Cầu nối C/C++ + toàn bộ lõi C biên dịch `-Wall -Wextra` | 0 warning |
+| `MainWindow`, `NetworkTab`, `LiveChart`, `IconProvider`, `ViewUtil`, `main_gui.cpp` | **CHƯA build được** (sandbox không có Qt) — mới rà soát tĩnh, bạn cần build thử |
