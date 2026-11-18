@@ -55,7 +55,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_refreshTimer = new QTimer(this);
     connect(m_refreshTimer, &QTimer::timeout, this, &MainWindow::onRefreshTick);
-    m_refreshTimer->start(2000); // mac dinh 2 giay, giong gia tri mac dinh trong main.c goc
+    m_refreshTimer->start(2000); // mac dinh 2 giay
 
     onRefreshTick(); // nap du lieu lan dau ngay khi mo, khong doi tick dau tien
 }
@@ -168,7 +168,7 @@ QWidget *MainWindow::createProcessListTab() {
     m_sortFieldCombo->addItem("%CPU", SORT_CPU);
     m_sortFieldCombo->addItem("%MEM", SORT_MEM);
     m_sortFieldCombo->addItem("Tên", SORT_NAME);
-    m_sortFieldCombo->setCurrentIndex(1); // mac dinh %CPU, giong ban TUI
+    m_sortFieldCombo->setCurrentIndex(1); // mac dinh sap xep theo %CPU
     connect(m_sortFieldCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onSortFieldChanged);
     toolbar->addWidget(new QLabel("Sắp xếp:", page));

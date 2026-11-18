@@ -80,7 +80,7 @@ private:
     const ProcessInfo *findInCurrByPid(pid_t pid) const;
     SortField currentSortField() const;
 
-    // ---- Du lieu: CUNG mot bo du lieu goc (ProcessArray/ProcessInfo) nhu ban TUI ----
+    // ---- Du lieu: Danh sach tien trinh he thong (ProcessArray/ProcessInfo) ----
     ProcessArray m_curr;   // snapshot day du, moi nhat
     ProcessArray m_prev;   // snapshot lan truoc, dung tinh %CPU
     ProcessArray m_view;   // ban hien thi (co the la ket qua loc cua m_curr)
